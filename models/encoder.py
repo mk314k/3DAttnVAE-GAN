@@ -1,3 +1,7 @@
+import torch
+import torch.nn as nn
+from attention import R3DAttention
+
 class R3DEncoder(nn.Module):
     def __init__(self, inChannel =1, imSize = (192,256), latent_dim=1024):
         super().__init__()
@@ -7,7 +11,6 @@ class R3DEncoder(nn.Module):
             nn.MaxPool2d(2),
             nn.ReLU()
         )
-        
         self.attention1 = R3DAttention(self.conv1_channel, 4)
         self.conv2 = nn.Sequential(
             nn.Conv2d(self.conv1_channel, 2*self.conv1_channel, kernel_size=3, stride=1, padding=1),

@@ -1,3 +1,6 @@
+import torch
+import torch.nn as nn
+
 class R3DGenerator(nn.Module):
     def __init__(self, z_dim):
         super().__init__()
