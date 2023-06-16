@@ -1,3 +1,6 @@
+import torch
+import torch.nn as nn
+
 conv3d = lambda channel: nn.Sequential(
         nn.Conv3d(channel[0], channel[1], kernel_size=4,stride=2, padding=1, bias=False),
         nn.BatchNorm3d(channel[1]),
