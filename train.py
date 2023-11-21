@@ -47,7 +47,7 @@ def vae_loss(recon_x, label):
 def train( # pylint: disable=too-many-locals
     train_x:torch.Tensor,
     train_y:torch.Tensor,
-    models,
+    models:tuple[nn.Module],
     optims,
     num_epochs=10
 ):
