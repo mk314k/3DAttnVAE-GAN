@@ -17,7 +17,7 @@ class R3DAttention(nn.Module):
     """
 
     def __init__(self, hidden_size: int, num_heads: int, dropout=0.1):
-        super(R3DAttention, self).__init__()
+        super().__init__()
 
         # Calculating the size of each attention head
         head_size = int(hidden_size / num_heads)

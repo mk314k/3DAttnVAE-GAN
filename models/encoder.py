@@ -35,13 +35,13 @@ class PatchEmbed(nn.Module):
         return out
 
 
-class R3DEncoder(nn.Module):
+class R3DEncoder(nn.Module): # pylint: disable=too-many-instance-attributes
     """_summary_
 
     Args:
         nn (_type_): _description_
     """
-    def __init__(
+    def __init__( # pylint: disable=too-many-arguments
         self,
         in_channel=1,
         num_patches=128,

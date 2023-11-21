@@ -44,12 +44,10 @@ def vae_loss(recon_x, label):
     return F.binary_cross_entropy(recon_x[0], label, reduction='sum')
 
 
-def train(
+def train( # pylint: disable=too-many-locals
     train_x:torch.Tensor,
     train_y:torch.Tensor,
-    model_e:nn.Module,
-    model_d:nn.Module,
-    model_g:nn.Module,
+    models,
     optims,
     num_epochs=10
 ):
@@ -68,6 +66,7 @@ def train(
         _type_: _description_
     """
     vae_optimizer, gan_optimizer = optims
+    model_e, model_g, model_d = models
     train_losses = []
     for _ in tqdm.tqdm(range(num_epochs)):
         for i in range(70):
@@ -117,7 +116,7 @@ if __name__ == '__main__':
         weight_decay=WD,
         betas=betas
     )
-    train_loss = train(train_data, train_label, MODEL_E, MODEL_G, MODEL_D, (vae_optim, gan_optim))
+    train_loss = train(train_data, train_label, (MODEL_E, MODEL_G, MODEL_D), (vae_optim, gan_optim))
     # Plotting training losses
     plt.figure(figsize=(16, 6))
     plt.plot(range(len(train_loss)), [tloss[0] for tloss in train_loss], label='Training VAE loss')
