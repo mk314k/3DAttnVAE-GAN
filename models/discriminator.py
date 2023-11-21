@@ -1,14 +1,31 @@
+"""
+This module includes 3D Discriminator module
+"""
 import torch
-import torch.nn as nn
+from torch import nn
 
-conv3d = lambda channel: nn.Sequential(
-    nn.Conv3d(channel[0], channel[1], kernel_size=4, stride=2, padding=1, bias=False),
-    nn.BatchNorm3d(channel[1]),
-    nn.LeakyReLU(0.2, inplace=True),
-)
+def conv3d(channel):
+    """_summary_
+
+    Args:
+        channel (_type_): _description_
+
+    Returns:
+        _type_: _description_
+    """
+    return nn.Sequential(
+        nn.Conv3d(channel[0], channel[1], kernel_size=4, stride=2, padding=1, bias=False),
+        nn.BatchNorm3d(channel[1]),
+        nn.LeakyReLU(0.2, inplace=True),
+    )
 
 
 class R3Discriminator(nn.Module):
+    """_summary_
+
+    Args:
+        nn (_type_): _description_
+    """
     def __init__(self):
         super().__init__()
         self.out_channels = 512
@@ -22,7 +39,15 @@ class R3Discriminator(nn.Module):
             nn.Sigmoid(),
         )
 
-    def forward(self, x):
+    def forward(self, x:torch.Tensor)->torch.Tensor:
+        """_summary_
+
+        Args:
+            x (torch.Tensor): _description_
+
+        Returns:
+            torch.Tensor: _description_
+        """
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
