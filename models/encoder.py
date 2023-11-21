@@ -3,8 +3,7 @@ Variational Autoencoder Architecture
 Author: mk314k
 """
 import torch
-import torch.nn as nn
-import torch.nn.Functional as F
+from torch import nn
 from attention import R3DAttention
 
 
@@ -43,7 +42,7 @@ class R3DEncoder(nn.Module):
         nn (_type_): _description_
     """
     def __init__(
-        self, 
+        self,
         in_channel=1,
         num_patches=128,
         embedding_dim=64,
@@ -68,12 +67,6 @@ class R3DEncoder(nn.Module):
         self.dist.scale = self.N.scale.cuda()
         self.kl_val = 0
 
-    def get_kl(self):
-        """
-        doc
-        """
-        return self.kl_val
-
     def forward(self, x: torch.Tensor):
         """
 
@@ -85,7 +78,7 @@ class R3DEncoder(nn.Module):
             torch.Tensor: _description_
         """
         # apply encoder network to input image
-        assert(len(x.shape) == 5, "input must be of shape (batch, view, channel, width, height)")
+        # assert(len(x.shape) == 5, "input must be of shape (batch, view, channel, width, height)")
         b, v, c, w, h = x.shape
         x = x.view(b * v, c, w, h)
         x = self.patch_embedding(x)

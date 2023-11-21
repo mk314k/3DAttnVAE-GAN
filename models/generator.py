@@ -1,8 +1,15 @@
+"""
+This module includes code for Generating 3D images
+"""
 import torch
-import torch.nn as nn
-
+from torch import nn
 
 class R3DGenerator(nn.Module):
+    """_summary_
+
+    Args:
+        nn (_type_): _description_
+    """
     def __init__(self, z_dim):
         super().__init__()
         self.z_dim = z_dim
@@ -26,7 +33,15 @@ class R3DGenerator(nn.Module):
             nn.ConvTranspose3d(8, 1, kernel_size=4, stride=2, padding=1), nn.Sigmoid()
         )
 
-    def forward(self, z):
+    def forward(self, z:torch.Tensor)->torch.Tensor:
+        """_summary_
+
+        Args:
+            z (_type_): _description_
+
+        Returns:
+            _type_: _description_
+        """
         out = self.linear(z)
         out = out.view(-1, 64, 4, 4, 4)
         out = self.conv1(out)
