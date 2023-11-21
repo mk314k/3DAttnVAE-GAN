@@ -1,12 +1,8 @@
 """_summary_
-
-Returns:
-    _type_: _description_
 """
 import torch
 import torch.nn as nn
 from fancy_einsum import einsum
-from einops import rearrange
 
 
 class R3DAttention(nn.Module):
@@ -34,9 +30,10 @@ class R3DAttention(nn.Module):
         Returns:
             torch.Tensor: (batch*view, patch, embedding)
         """
-        qkv = self.qkv_proj(x)
+        b, p, _ = x.shape
+        qkv = self.qkv_proj(x).reshape(b, p, 3, self.n_head, self.head_size)
+        q, k, v = qkv.chunk(dim=2)
         #b-batch, p-patch, c-constant(3), n-num_heads, s-head_size
-        q, k, v = rearrange(qkv, "b p (c n s)-> c b n p s", c=3, n=self.n_head)
         attn_score = einsum("b n pq s, b n pk s->b n pq pk", q, k) / (
             self.head_size**0.5
         )
@@ -51,8 +48,8 @@ class R3DAttention(nn.Module):
         return out
 
 
-if __name__ == "__main__":
-    attn = R3DAttention(64, 4)
-    def count_par(model):
-        return sum(p.numel() for p in model.parameters() if p.requires_grad)
-    print(count_par(attn))
+# if __name__ == "__main__":
+#     attn = R3DAttention(64, 4)
+#     def count_par(model):
+#         return sum(p.numel() for p in model.parameters() if p.requires_grad)
+#     print(count_par(attn))

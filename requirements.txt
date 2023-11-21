@@ -1,0 +1,9 @@
+fancy_einsum
+torch
+torchvision
+tqdm
+scikit-learn
+matplotlib
+opencv-python
+scipy
+numpy
