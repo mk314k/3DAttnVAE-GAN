@@ -1,52 +1,92 @@
+"""
+Variational Autoencoder Architecture
+Author: mk314k
+"""
 import torch
-import torch.nn as nn
+from torch import nn
 from attention import R3DAttention
 
-class R3DEncoder(nn.Module):
-    def __init__(self, inChannel =1, imSize = (192,256), latent_dim=1024):
+
+class PatchEmbed(nn.Module):
+    """ Image to Patch Embedding
+    """
+    def __init__(self, patch_size: int, img_channel: int, embedding_channel: int):
+        """_summary_
+
+        Args:
+            patch_size (int): _description_
+            in_channel (int): _description_
+            out_channel (int): _description_
+        """
+
         super().__init__()
-        self.conv1_channel = 32
-        self.conv1 = nn.Sequential(
-            nn.Conv2d(inChannel, self.conv1_channel, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(2),
-            nn.ReLU()
+        self.patch_embedding = nn.Conv2d(img_channel, embedding_channel, kernel_size=patch_size)
+
+    def forward(self, x: torch.Tensor):
+        """_summary_
+
+        Args:
+            x (torch.Tensor): (batch*view, channel, width, height)
+
+        Returns:
+            torch.Tensor: (batch*view, patch, embedding)
+        """
+        out = self.patch_embedding(x).view(x.size(0), -1, self.num_patches).permute(0, 2, 1)
+        return out
+
+
+class R3DEncoder(nn.Module): # pylint: disable=too-many-instance-attributes
+    """_summary_
+
+    Args:
+        nn (_type_): _description_
+    """
+    def __init__( # pylint: disable=too-many-arguments
+        self,
+        in_channel=1,
+        num_patches=128,
+        embedding_dim=64,
+        embedding_kernel=3,
+        attention_head=4,
+        latent_dim=1024
+    ):
+        super().__init__()
+        self.patch_embedding = PatchEmbed(
+            img_channel=in_channel,
+            embedding_channel=embedding_dim,
+            patch_size=embedding_kernel
         )
-        self.attention1 = R3DAttention(self.conv1_channel, 4)
-        self.conv2 = nn.Sequential(
-            nn.Conv2d(self.conv1_channel, 2*self.conv1_channel, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(4),
-            nn.ReLU()
-        ) 
-        self.attention2 = R3DAttention(2*self.conv1_channel, 8)
-        self.conv3 = nn.Sequential(
-            nn.Conv2d(2*self.conv1_channel, 4*self.conv1_channel, kernel_size=3, stride=1, padding=1),
-            nn.MaxPool2d(4),
-            nn.ReLU()
-        )
-        self.fc1 = nn.Linear(4*self.conv1_channel*6*8, 1024)
-        self.fc2 = nn.Linear(1024, 512)
-        self.fc3 = nn.Linear(512, 256)
+        self.pos_embedding = nn.Embedding(num_patches, embedding_dim)
+        self.batch_attention = R3DAttention(embedding_dim, attention_head)
+        # self.view_attention = R3DAttention(2 * conv1_channel, 8)
+        self.fc = nn.Linear(embedding_dim, 256)
         self.fc_mu = nn.Linear(256, latent_dim)
         self.fc_logvar = nn.Linear(256, latent_dim)
-        self.N = torch.distributions.Normal(0, 1)
-        self.N.loc = self.N.loc.cuda() 
-        self.N.scale = self.N.scale.cuda()
-        self.kl = 0
+        self.dist = torch.distributions.Normal(0, 1)
+        self.dist.loc = self.N.loc.cuda()
+        self.dist.scale = self.N.scale.cuda()
+        self.kl_val = 0
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor):
+        """
+
+        Args:
+            x (torch.Tensor): input tensor
+            Each image can have multiple view
+
+        Returns:
+            torch.Tensor: _description_
+        """
         # apply encoder network to input image
-        x = self.conv1(x)
-        x = x + self.attention1(x)
-        x = self.conv2(x)
-        x = x + self.attention2(x)
-        x = self.conv3(x)
-        # x = x.reshape((4*self.conv1_channel,6, 32, 8, 32)).permute((2, 4, 0, 1, 3)).reshape((1024, -1))
-        x = torch.flatten(x)
-        x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = F.relu(self.fc3(x))
-        mu = self.fc_mu(x)
-        sigma = torch.exp(self.fc_logvar(x))
-        z = mu + sigma*self.N.sample(mu.shape)
-        self.kl = (sigma**2 + mu**2 - torch.log(sigma) - 1/2).sum()
-        return z
+        # assert(len(x.shape) == 5, "input must be of shape (batch, view, channel, width, height)")
+        b, v, c, w, h = x.shape
+        x = x.view(b * v, c, w, h)
+        x = self.patch_embedding(x)
+        x = x + self.pos_embedding() #fix it
+        x = x + self.patch_attention(x)
+        x = self.mlp(x)
+        mu_val = self.fc_mu(x)
+        sigma = self.fc_logvar(x).exp()
+        z_val = mu_val + sigma * self.dist.sample(mu_val.shape)
+        self.kl_val = (sigma ** 2 + mu_val**2 - sigma.log() - 1 / 2).sum()
+        return z_val
