@@ -15,8 +15,8 @@ def conv3d(in_channel:int, out_channel:int):
         nn.Module: Conv3d Module
     """
     return nn.Sequential(
-        nn.Conv3d(channel[0], channel[1], kernel_size=4, stride=2, padding=1, bias=False),
-        nn.BatchNorm3d(channel[1]),
+        nn.Conv3d(in_channel, out_channel, kernel_size=4, stride=2, padding=1, bias=False),
+        nn.BatchNorm3d(out_channel),
         nn.LeakyReLU(0.2, inplace=True),
     )
 
