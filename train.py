@@ -5,7 +5,6 @@ Author:mk314k
 import tqdm.auto as tqdm
 from sklearn.model_selection import train_test_split
 import torch
-from torch import nn
 import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from models.encoder import R3DEncoder
@@ -47,7 +46,7 @@ def vae_loss(recon_x, label):
 def train( # pylint: disable=too-many-locals
     train_x:torch.Tensor,
     train_y:torch.Tensor,
-    models:tuple[nn.Module],
+    models,
     optims,
     num_epochs=10
 ):
