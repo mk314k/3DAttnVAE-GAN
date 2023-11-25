@@ -55,17 +55,17 @@ def preprocess(images, sizex=None, sizey=None):
 
 
 
-def downsample(mat:np.ndarray, down_sample=64)->np.ndarray:
+def downsample(mat:np.ndarray, new_size=64)->np.ndarray:
     """
     Args:
         mat (np.ndarray): 3d image 
-        down_sample (int, optional): the new number of voxels cubes. Defaults to 64.
+        new_size (int, optional): the new number of voxels cubes. Defaults to 64.
 
     Returns:
         np.ndarray: 3d images after downsampling
     """
-    lost_dim = int(mat.shape[2]/down_sample)
-    return mat.reshape((-1, down_sample, lost_dim, down_sample, lost_dim, down_sample, lost_dim)).mean(
+    lost_dim = int(mat.shape[2]/new_size)
+    return mat.reshape((-1, new_size, lost_dim, new_size, lost_dim, new_size, lost_dim)).mean(
             axis=(2, 4, 6)
         )
 
