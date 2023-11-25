@@ -8,13 +8,11 @@ This project focuses on the problem of reconstructing 3D shapes from a single 2D
 ## Dependencies
   - Python
   - Pytorch
-  - einops
-  - fancy_einsum
   - sklearn
 
 ## Results
-<img src="test/3dcar.png" width="300" height="300"/> | <img src="test/r3dcar.png" width="300" height="300"/> | <img src="test/car.png" width="300" height="300"/>
-<img src="test/3dphone.png" width="300" height="300"/> | <img src="test/r3dphone.png" width="300" height="300"/> | <img src="test/phone.png" width="300" height="300"/>
+<img src="test/3dcar.png" width="200" height="200"/> | <img src="test/r3dcar.png" width="200" height="200"/> | <img src="test/car.png" width="200" height="200"/>
+<img src="test/3dphone.png" width="200" height="200"/> | <img src="test/r3dphone.png" width="200" height="200"/> | <img src="test/phone.png" width="200" height="200"/>
 
 fig. 3d image (given), 3d image (generated), 2d image (given) from left to right
 
