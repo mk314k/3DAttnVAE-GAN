@@ -1,18 +1,17 @@
 """
-Variational Autoencoder Architecture
+Variational Autoencoder Architecture using Multihead Attentions
 Author: mk314k
 """
+import math
 import torch
 from torch import nn
 from attention import R3DAttention
 
-
 class PatchEmbed(nn.Module):
     """ Image to Patch Embedding
     """
-    def __init__(self, patch_size: int, img_channel: int, embedding_channel: int):
-        """_summary_
-
+    def __init__(self, patch_size = 3, img_channel = 1, out_channel = 256):
+        """
         Args:
             patch_size (int): _description_
             in_channel (int): _description_
@@ -20,7 +19,18 @@ class PatchEmbed(nn.Module):
         """
 
         super().__init__()
-        self.patch_embedding = nn.Conv2d(img_channel, embedding_channel, kernel_size=patch_size)
+        self.embedding_channel = out_channel
+        pad = math.floor(patch_size / 2)
+        mid_channel = int(out_channel/8)
+        mid_kernel = 2*patch_size - 1
+        self.patch_embedding = nn.Sequential(
+            nn.Conv2d(img_channel, mid_channel, kernel_size=patch_size, padding=pad),
+            nn.MaxPool2d(kernel_size=pad),
+            nn.Conv2d(mid_channel, 4*mid_channel, kernel_size=mid_kernel, stride=mid_kernel),
+            nn.MaxPool2d(kernel_size=pad),
+            nn.Conv2d(4*mid_channel, out_channel, kernel_size=patch_size, stride=patch_size),
+            nn.MaxPool2d(kernel_size=pad)
+        )
 
     def forward(self, x: torch.Tensor):
         """_summary_
@@ -31,7 +41,8 @@ class PatchEmbed(nn.Module):
         Returns:
             torch.Tensor: (batch*view, patch, embedding)
         """
-        out = self.patch_embedding(x).view(x.size(0), -1, self.num_patches).permute(0, 2, 1)
+        out = self.patch_embedding(x)
+        out = out.view(*out.shape[:2], -1).permute(0, 2, 1)
         return out
 
 
@@ -53,7 +64,7 @@ class R3DEncoder(nn.Module): # pylint: disable=too-many-instance-attributes
         super().__init__()
         self.patch_embedding = PatchEmbed(
             img_channel=in_channel,
-            embedding_channel=embedding_dim,
+            out_channel=embedding_dim,
             patch_size=embedding_kernel
         )
         self.pos_embedding = nn.Embedding(num_patches, embedding_dim)
