@@ -1,14 +1,14 @@
 """
 This Module includes general implementation of Multiheaded Attention
+Author:mk314k
 """
 import torch
 from torch import nn
-from fancy_einsum import einsum
 
 
 class R3DAttention(nn.Module):
     """
-    R3DAttention module performs multi-head attention computation on 3D data.
+    R3DAttention module performs multi-head attention computation on Image Patches.
 
     Args:
         hidden_size (int): The dimensionality of the input embeddings.
@@ -43,29 +43,31 @@ class R3DAttention(nn.Module):
         Returns:
             torch.Tensor: Output tensor after attention computation (batch*view, patch, embedding).
         """
-        b, p, _ = x.shape
+        bv, p, _ = x.shape
 
         # Projecting input into query, key, and value representations
-        qkv = self.qkv_proj(x).reshape(b, p, 3, self.n_head, self.head_size)
-        q, k, v = qkv.chunk(dim=2)
+        qkv = self.qkv_proj(x).reshape(bv, p, 3, self.n_head, self.head_size)
+        qkv = qkv.permute(2,0,3,1,4) #(3, bv, n, p, h)
+        q, k, v = qkv.chunk(3)
 
-        # Calculating attention scores
-        attn_score = einsum("b n pq s, b n pk s->b n pq pk", q, k) / (self.head_size ** 0.5)
+        # Calculating attention scores (bv, n, p, p)
+        attn_score = q[0].matmul(k[0].transpose(-1,-2))/ (self.head_size ** 0.5)
 
         # Applying optional mask to attention scores
         if mask is not None:
             attn_score -= mask
 
         # Computing attention probabilities and apply dropout
-        attn_prob = attn_score.softmax(dim=-1)
+        attn_prob = attn_score.softmax(dim=-1) #(bv, n, p, p)
         attn_prob = self.attn_dropout(attn_prob)
 
         # Weighted sum of values using attention probabilities
-        z = einsum("b n pq pk, b n pk s ->b pq n s", attn_prob, v)
-        z = z.reshape((z.shape[0], z.shape[1], -1))
+        z = attn_prob.matmul(v[0]) #(bv, n, p, h)
+        z = z.permute(0, 2, 1, 3) #(bv, p, n, h)
+        z = z.reshape((bv, p, -1)) #(bv, n, e)
 
         # Projecting back to the original space and applying residual dropout
-        out = self.output_proj(z)
+        out = self.output_proj(z) #(bv, n, e)
         out = self.resid_dropout(out)
 
         return out

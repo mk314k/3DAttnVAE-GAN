@@ -1,4 +1,3 @@
-fancy_einsum
 torch
 torchvision
 tqdm
