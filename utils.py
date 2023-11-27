@@ -30,7 +30,7 @@ def voxshow(image):
 
 
 
-def preprocess(images, sizex=None, sizey=None):
+def preprocess(images, img_shape=None):
     """
     Preprocesses the input images by converting them to grayscale and resizing 
     them if sizex and sizey are provided.
@@ -43,7 +43,7 @@ def preprocess(images, sizex=None, sizey=None):
     Returns:
         torch.Tensor: Preprocessed images as a tensor.
     """
-
+    sizex, sizey = img_shape
     images_tensor = torch.from_numpy(images) # pylint: disable=no-member
     transform_list = [transforms.Grayscale()]
     if sizex and sizey:
@@ -70,7 +70,7 @@ def downsample(mat:np.ndarray, new_size=64)->np.ndarray:
         )
 
 
-def load_data(data_path:str, down_sample=None):
+def load_data(data_path:str, voxel_size=None, pixel_shape=None, device=None):
     """
     Load 2d and 3d images from given path
     Args:
@@ -89,12 +89,17 @@ def load_data(data_path:str, down_sample=None):
         if folder_name[0] != ".":
             mat_file_path = os.path.join(f"{data_path[:-4]}voxels/{folder_name}/model.mat")
             mat_data = sio.loadmat(mat_file_path)["input"][0]
-            if down_sample is not None:
-                mat_data = downsample(mat_data, down_sample)
+            if voxel_size is not None:
+                mat_data = downsample(mat_data, voxel_size)
             mat_data = torch.tensor(mat_data) # pylint: disable=no-member
             img = []
             for i in range(12): #shapenet core has 12 views of 2d images
                 img.append(cv2.imread(folder_path + "/" + format(i, "03d") + ".png")) # pylint: disable=no-member
-            img2d.append(preprocess(np.array(img)))
+            img2d.append(preprocess(np.array(img), pixel_shape))
             img3d.append(mat_data)
+    img2d = torch.tensor(img2d) # pylint: disable=no-member
+    img3d = torch.tensor(img3d) # pylint: disable=no-member
+    if device is not None:
+        img2d = img2d.to(device)
+        img3d = img3d.to(device)
     return img2d, img3d
