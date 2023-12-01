@@ -1,40 +1,54 @@
 """
 This is an optional wrapper for VAE_GAN Model
 """
+from typing import Tuple
 import torch
-from encoder import R3DEncoder
-from generator import R3DGenerator
-from discriminator import R3Discriminator
+from torch import nn
+from models.encoder import R3DEncoder
+from models.generator import R3DGenerator
+from models.discriminator import R3Discriminator
 
-class R3D:
+class R3D(nn.Module):
     """
     The main model
     """
     def __init__(self, # pylint: disable=too-many-arguments
         in_channel=1,
-        num_patches=128,
+        image_size=(256, 192),
         embedding_dim=64,
         embedding_kernel=3,
         attention_head=4,
+        num_layers=2,
         latent_dim=1024
     ):
+        super().__init__()
         self.encoder = R3DEncoder(
-            in_channel, num_patches, embedding_dim, embedding_kernel, attention_head, latent_dim
+            in_channel, image_size, embedding_dim, embedding_kernel,
+            attention_head, num_layers, latent_dim
         )
         self.generator = R3DGenerator(latent_dim)
         self.discriminator = R3Discriminator()
-        self.enc = None
-        self.gan = None
-        self.disc_true = None
-        self.disc_false = None
 
-    def __call__(self, x:torch.Tensor, y:torch.Tensor)->torch.Tensor:
-        self.enc = self.encoder(x)
-        self.gan = self.generator(self.enc)
-        self.disc_true = self.discriminator(y.reshape(1, *y.shape))
-        self.disc_false = self.discriminator(self.gan)
+    def forward(self, x:torch.Tensor)->Tuple[torch.Tensor, torch.Tensor]:
+        """
+        Args:
+            x (torch.Tensor): views (batch, view, channel, height, width)
 
-        return self.gan
+        Returns:
+            tuple[torch.Tensor, torch.Tensor]: voxel logits (batch, 1, 64, 64, 64)
+            and the encoder KL divergence
+        """
+        z_val, kl_val = self.encoder(x)
+        return self.generator(z_val), kl_val
+
+    @torch.no_grad()
+    def reconstruct(self, x:torch.Tensor)->torch.Tensor:
+        """
+        Returns:
+            voxel occupancy probabilities (batch, 64, 64, 64)
+        """
+        logits, _ = self(x)
+        return torch.sigmoid(logits).squeeze(1)
 
     def vae_parameters(self):
         """
@@ -43,9 +57,9 @@ class R3D:
         """
         return list(self.encoder.parameters()) + list(self.generator.parameters())
 
-    def gan_parameters(self):
+    def disc_parameters(self):
         """
         Returns:
-            list of parameters for 3d image generation and discrimination
+            list of parameters for discriminating real and generated 3d images
         """
-        return list(self.generator.parameters()) + list(self.discriminator.parameters())
+        return list(self.discriminator.parameters())
