@@ -2,135 +2,146 @@
 This module includes all the loss and other functions necessary for training the model
 Author:mk314k
 """
-# from sklearn.model_selection import train_test_split
+from typing import Dict
 import torch
 import torch.nn.functional as F
+from torch.utils.data import DataLoader
 from models.r3d import R3D
 
 
-def gan_loss(discriminator_output:torch.Tensor, is_real:bool)->torch.Tensor:
+def gan_loss(discriminator_logits:torch.Tensor, is_real:bool)->torch.Tensor:
     """Measure to classify real 3d image with generated 3d image
 
     Args:
-        discriminator_output (torch.Tensor): _description_
-        is_real (bool): _description_
+        discriminator_logits (torch.Tensor): raw discriminator output
+        is_real (bool): whether the target label is real
 
     Returns:
-        torch.Tensor: _description_
+        torch.Tensor: mean binary cross entropy
     """
-    if is_real:
-        target = torch.ones_like(discriminator_output) # pylint: disable=no-member
-    else:
-        target = torch.zeros_like(discriminator_output) # pylint: disable=no-member
-    loss = F.binary_cross_entropy(discriminator_output, target, reduction='mean')
-    return loss
+    target = torch.full_like(discriminator_logits, 1.0 if is_real else 0.0)
+    return F.binary_cross_entropy_with_logits(discriminator_logits, target)
 
 
-def vae_loss(recon_x, label):
-    """_summary_
+def vae_loss(recon_logits:torch.Tensor, label:torch.Tensor, pos_weight=1.0)->torch.Tensor:
+    """Per-voxel reconstruction loss
 
     Args:
-        recon_x (_type_): _description_
-        label (_type_): _description_
+        recon_logits (torch.Tensor): generated voxel logits (batch, 1, D, H, W)
+        label (torch.Tensor): target occupancy in [0, 1] (batch, 1, D, H, W)
+        pos_weight (float): weight of occupied voxels; most voxels are empty, so values
+            above 1 stop the model from settling on blurry, mostly-empty predictions
 
     Returns:
-        _type_: _description_
+        torch.Tensor: mean binary cross entropy over all voxels
     """
-    return F.binary_cross_entropy(recon_x[0], label, reduction='sum')
+    weight = torch.tensor(pos_weight, device=recon_logits.device)
+    return F.binary_cross_entropy_with_logits(recon_logits, label, pos_weight=weight)
 
 
-def train_epoch( # pylint: disable=too-many-locals
-    train_x:torch.Tensor,
-    train_y:torch.Tensor,
+def voxel_iou(pred:torch.Tensor, label:torch.Tensor, threshold=0.5)->torch.Tensor:
+    """
+    Args:
+        pred (torch.Tensor): occupancy probabilities (batch, ...)
+        label (torch.Tensor): target occupancy (batch, ...)
+        threshold (float): occupancy cutoff applied to both tensors
+
+    Returns:
+        torch.Tensor: intersection over union for each sample (batch,)
+    """
+    pred = (pred >= threshold).flatten(1)
+    label = (label >= threshold).flatten(1)
+    intersection = (pred & label).sum(dim=1).float()
+    union = (pred | label).sum(dim=1).float()
+    return torch.where(union > 0, intersection / union.clamp(min=1), torch.ones_like(union))
+
+
+def train_step( # pylint: disable=too-many-arguments,too-many-locals
     model:R3D,
-    vae_optimizer,
-    gan_optimizer
-):
-    """_summary_
+    images:torch.Tensor,
+    voxels:torch.Tensor,
+    vae_optimizer:torch.optim.Optimizer,
+    disc_optimizer:torch.optim.Optimizer,
+    kl_weight=1.0,
+    adv_weight=1e-2,
+    pos_weight=1.0,
+)->Dict[str, float]:
+    """One discriminator update followed by one encoder/generator update
 
     Args:
-        train_x (torch.Tensor): _description_
-        train_y (torch.Tensor): _description_
-        model_e (nn.Module): _description_
-        model_d (nn.Module): _description_
-        model_g (nn.Module): _description_
-        optims (_type_): _description_
-        num_epochs (int, optional): _description_. Defaults to 10.
+        images (torch.Tensor): (batch, view, channel, height, width)
+        voxels (torch.Tensor): (batch, D, H, W) occupancy in [0, 1]
 
     Returns:
-        _type_: _description_
+        dict[str, float]: losses of this step
     """
-    gan_total_loss = 0
-    disc_total_loss = 0
-    for batch_data, batch_label in zip(train_x, train_y):
-        pred = model(batch_data, batch_label)
+    voxels = voxels.unsqueeze(1)
+    recon_logits, kl_val = model(images)
+    fake = torch.sigmoid(recon_logits)
 
-        g_loss = model.kl_val + vae_loss(pred, batch_label)
-        vae_optimizer.zero_grad()
-        g_loss.backward()
-        vae_optimizer.step()
-        gan_total_loss += g_loss.item()
+    d_loss = (
+        gan_loss(model.discriminator(voxels), True)
+        + gan_loss(model.discriminator(fake.detach()), False)
+    )
+    disc_optimizer.zero_grad()
+    d_loss.backward()
+    disc_optimizer.step()
 
-        d_loss = gan_loss(model.disc_true, True) + gan_loss(model.disc_false, False)
-        gan_optimizer.zero_grad()
-        d_loss.backward()
-        gan_optimizer.step()
-        disc_total_loss += d_loss.item()
+    recon = vae_loss(recon_logits, voxels, pos_weight)
+    kl_scaled = kl_val / voxels[0].numel()
+    adv = gan_loss(model.discriminator(fake), True)
+    g_loss = recon + kl_weight * kl_scaled + adv_weight * adv
+    vae_optimizer.zero_grad()
+    g_loss.backward()
+    vae_optimizer.step()
 
-    return gan_total_loss, disc_total_loss
+    return {
+        "recon": recon.item(),
+        "kl": kl_val.item(),
+        "adv": adv.item(),
+        "gen": g_loss.item(),
+        "disc": d_loss.item(),
+    }
 
-    #     g_logit = model_g(e_logit)
-    #     g_loss = model_e.kl + vae_loss(g_logit, batch_label)
-    #     vae_optimizer.zero_grad()
-    #     g_loss.backward(retain_graph=True)
-    #     vae_optimizer.step()
-    #     g_logit = model_g(e_logit.detach())
-    #     d_true = model_d(batch_label.reshape((1, *batch_label.shape)))
-    #     d_false = model_d(g_logit)
-    #     d_loss = gan_loss(d_false, False) + gan_loss(d_true, True)
-    #     gan_optimizer.zero_grad()
-    #     d_loss.backward()
-    #     gan_optimizer.step()
-    # train_losses.append((g_loss.item(), d_loss.item()))
-    # return train_losses
 
-# if __name__ == '__main__':
-#     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-#     img2d = torch.zeros(10,10)
-#     img3d = torch.zeros(10,10,10)
-#     tt_split = train_test_split(img2d, img3d, test_size=0.3, random_state=500)
-#     train_data, test_data, train_label, test_label = tt_split
-#     # Intializing models
-#     MODEL_E = R3DEncoder().to(device)
-#     MODEL_G = R3DGenerator(1024).to(device)
-#     MODEL_D = R3Discriminator().to(device)
-#     # Setting hyperparameters for your optimizers
-#     LR = 1e-3
-#     WD = 0.2
-#     betas=(0.9, 0.98)
-#     # Initializing optimizers
-#     vae_optim = torch.optim.AdamW(
-#         list(MODEL_E.parameters())+list(MODEL_G.parameters()),
-#         lr=LR,
-#         weight_decay=WD,
-#         betas=betas
-#     )
-#     gan_optim = torch.optim.AdamW(
-#         list(MODEL_D.parameters())+list(MODEL_G.parameters()),
-#         lr=LR,
-#         weight_decay=WD,
-#         betas=betas
-#     )
-#     train_loss = train(train_data, train_label, (MODEL_E, MODEL_G,
-# MODEL_D), (vae_optim, gan_optim))
-#     # Plotting training losses
-#     plt.figure(figsize=(16, 6))
-#     plt.plot(range(len(train_loss)), [tloss[0] for tloss in train_loss],
-#  label='Training VAE loss')
-#     plt.plot(range(len(train_loss)), [tloss[1] for tloss in train_loss],
-#  label='Training GAN loss')
-#     plt.xlabel('Epoch')
-#     plt.ylabel('Loss')
-#     plt.title('Model Performance')
-#     plt.legend()
-#     plt.show()
+def train_epoch( # pylint: disable=too-many-arguments
+    model:R3D,
+    loader:DataLoader,
+    vae_optimizer:torch.optim.Optimizer,
+    disc_optimizer:torch.optim.Optimizer,
+    device:torch.device,
+    kl_weight=1.0,
+    adv_weight=1e-2,
+    pos_weight=1.0,
+)->Dict[str, float]:
+    """
+    Returns:
+        dict[str, float]: losses averaged over the epoch
+    """
+    model.train()
+    totals: Dict[str, float] = {}
+    for images, voxels in loader:
+        losses = train_step(
+            model, images.to(device), voxels.to(device),
+            vae_optimizer, disc_optimizer, kl_weight, adv_weight, pos_weight
+        )
+        for key, value in losses.items():
+            totals[key] = totals.get(key, 0.0) + value
+    return {key: value / max(len(loader), 1) for key, value in totals.items()}
+
+
+@torch.no_grad()
+def evaluate(model:R3D, loader:DataLoader, device:torch.device)->Dict[str, float]:
+    """
+    Returns:
+        dict[str, float]: mean reconstruction loss and voxel IoU over the loader
+    """
+    model.eval()
+    recon_total, iou_total, count = 0.0, 0.0, 0
+    for images, voxels in loader:
+        images, voxels = images.to(device), voxels.to(device)
+        recon_logits, _ = model(images)
+        recon_total += vae_loss(recon_logits, voxels.unsqueeze(1)).item() * len(voxels)
+        iou_total += voxel_iou(torch.sigmoid(recon_logits).squeeze(1), voxels).sum().item()
+        count += len(voxels)
+    return {"recon": recon_total / max(count, 1), "iou": iou_total / max(count, 1)}
