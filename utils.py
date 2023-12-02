@@ -4,14 +4,13 @@ from shapenet core dataset.
 Author:mk314k
 """
 import os
-import torch
-from torchvision import transforms
-from matplotlib import pyplot as plt
+from typing import Tuple
 import cv2
-# from mpl_toolkits.mplot3d import Axes3D
-import scipy.io as sio
 import numpy as np
-
+import scipy.io as sio
+import torch
+from torch.utils.data import Dataset
+from matplotlib import pyplot as plt
 
 
 def voxshow(image):
@@ -29,77 +28,92 @@ def voxshow(image):
     plt.show()
 
 
-
-def preprocess(images, img_shape=None):
+def load_views(folder_path:str, num_views:int, image_size:Tuple[int, int])->torch.Tensor:
     """
-    Preprocesses the input images by converting them to grayscale and resizing 
-    them if sizex and sizey are provided.
+    Reads views 000.png, 001.png, ... of one object as grayscale
 
     Args:
-        images (np.ndarray): Input images (batch, channels, height, width).
-        sizex (int, optional): New width for resizing (default: None).
-        sizey (int, optional): New height for resizing (default: None).
+        folder_path (str): folder containing the rendered views
+        num_views (int): number of views to read
+        image_size (tuple[int, int]): (height, width) to resize each view to
 
     Returns:
-        torch.Tensor: Preprocessed images as a tensor.
+        torch.Tensor: (view, 1, height, width) in [0, 1]
     """
-    sizex, sizey = img_shape
-    images_tensor = torch.from_numpy(images) # pylint: disable=no-member
-    transform_list = [transforms.Grayscale()]
-    if sizex and sizey:
-        transform_list.append(transforms.Resize((sizey, sizex)))
-    composed_transforms = transforms.Compose(transform_list)
-    transformed_images = composed_transforms(images_tensor)
-
-    return transformed_images
-
+    height, width = image_size
+    views = []
+    for view in range(num_views):
+        path = os.path.join(folder_path, f"{view:03d}.png")
+        img = cv2.imread(path, cv2.IMREAD_GRAYSCALE)  # pylint: disable=no-member
+        if img is None:
+            raise FileNotFoundError(f"could not read view {path}")
+        img = cv2.resize(img, (width, height), interpolation=cv2.INTER_AREA)  # pylint: disable=no-member
+        views.append(img)
+    return torch.from_numpy(np.stack(views)).float().div_(255.0).unsqueeze(1)
 
 
 def downsample(mat:np.ndarray, new_size=64)->np.ndarray:
     """
     Args:
-        mat (np.ndarray): 3d image 
+        mat (np.ndarray): cubic 3d image (N, N, N)
         new_size (int, optional): the new number of voxels cubes. Defaults to 64.
 
     Returns:
-        np.ndarray: 3d images after downsampling
+        np.ndarray: 3d image (new_size, new_size, new_size) after average pooling
     """
-    lost_dim = int(mat.shape[2]/new_size)
-    return mat.reshape((-1, new_size, lost_dim, new_size, lost_dim, new_size, lost_dim)).mean(
-            axis=(2, 4, 6)
-        )
+    if mat.shape[0] % new_size:
+        raise ValueError(f"voxel grid of size {mat.shape[0]} is not divisible by {new_size}")
+    factor = mat.shape[0] // new_size
+    return mat.reshape(
+        new_size, factor, new_size, factor, new_size, factor
+    ).mean(axis=(1, 3, 5))
 
 
-def load_data(data_path:str, voxel_size=None, pixel_shape=None, device=None):
+def load_voxels(mat_file_path:str, voxel_size=None)->torch.Tensor:
     """
-    Load 2d and 3d images from given path
     Args:
-        data_path (string): path of image files, it must ends with imgs
-                            as downloded from shapenet core dataset website
-        down_sample (int, optional): Downsamples 3d images if set to an integer.
-                                     Defaults to None.
+        mat_file_path (str): path of a model.mat file with an "input" voxel array
+        voxel_size (int, optional): downsample the grid to this size
 
     Returns:
-        tuple[List[torch.Tesnor]]: 2d and their corresponding 3d images in tensor form
+        torch.Tensor: occupancy grid (D, H, W) in [0, 1]
     """
-    img2d = []
-    img3d = []
-    for i, folder_name in enumerate(os.listdir(data_path)):
-        folder_path = os.path.join(data_path, folder_name)
-        if folder_name[0] != ".":
-            mat_file_path = os.path.join(f"{data_path[:-4]}voxels/{folder_name}/model.mat")
-            mat_data = sio.loadmat(mat_file_path)["input"][0]
-            if voxel_size is not None:
-                mat_data = downsample(mat_data, voxel_size)
-            mat_data = torch.tensor(mat_data) # pylint: disable=no-member
-            img = []
-            for i in range(12): #shapenet core has 12 views of 2d images
-                img.append(cv2.imread(folder_path + "/" + format(i, "03d") + ".png")) # pylint: disable=no-member
-            img2d.append(preprocess(np.array(img), pixel_shape))
-            img3d.append(mat_data)
-    img2d = torch.tensor(img2d) # pylint: disable=no-member
-    img3d = torch.tensor(img3d) # pylint: disable=no-member
-    if device is not None:
-        img2d = img2d.to(device)
-        img3d = img3d.to(device)
-    return img2d, img3d
+    mat = np.squeeze(sio.loadmat(mat_file_path)["input"]).astype(np.float32)
+    if voxel_size is not None and mat.shape[0] != voxel_size:
+        mat = downsample(mat, voxel_size)
+    return torch.from_numpy(np.ascontiguousarray(mat))
+
+
+class ShapeNetVoxelDataset(Dataset):
+    """
+    Pairs of 2d views and 3d voxel grids, read lazily from disk.
+
+    Expected layout (as downloaded from the shapenet core dataset website):
+        <root>/<split>_imgs/<object>/000.png ... 011.png
+        <root>/<split>_voxels/<object>/model.mat
+    """
+    def __init__(self, data_path:str, image_size=(256, 192), voxel_size=64, num_views=12):
+        if not data_path.rstrip("/").endswith("imgs"):
+            raise ValueError(f"data_path must end with 'imgs', got {data_path}")
+        self.data_path = data_path.rstrip("/")
+        self.voxel_path = self.data_path[:-4] + "voxels"
+        self.image_size = image_size
+        self.voxel_size = voxel_size
+        self.num_views = num_views
+        self.objects = sorted(
+            name for name in os.listdir(self.data_path)
+            if not name.startswith(".") and os.path.isdir(os.path.join(self.data_path, name))
+        )
+
+    def __len__(self):
+        return len(self.objects)
+
+    def __getitem__(self, index:int)->Tuple[torch.Tensor, torch.Tensor]:
+        name = self.objects[index]
+        views = load_views(
+            os.path.join(self.data_path, name), self.num_views, self.image_size
+        )
+        voxels = load_voxels(
+            os.path.join(self.voxel_path, name, "model.mat"), self.voxel_size
+        )
+        return views, voxels
