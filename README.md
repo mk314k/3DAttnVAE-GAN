@@ -1,6 +1,7 @@
 # 3DAttnVAE-GAN
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Pylint](https://github.com/mk314k/3DAttnVAE-GAN/actions/workflows/pylint.yml/badge.svg)](https://github.com/mk314k/3DAttnVAE-GAN/actions/workflows/pylint.yml)
 
 This project focuses on the problem of reconstructing 3D shapes from a single 2D image, utilizing a VAE-GAN model augmented with attention blocks. The model is trained on the ShapeNetCore dataset, which consists of over 48,600 3D models across 55 common categories. I have included a CVPR format latex-typed project description in this repository.
 [View detailed project description here](paper_cvpr.pdf)
