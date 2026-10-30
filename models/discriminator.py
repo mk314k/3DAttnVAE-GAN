@@ -33,24 +33,18 @@ class R3Discriminator(nn.Module):
         self.conv2 = conv3d(64, 128)
         self.conv3 = conv3d(128, 256)
         self.conv4 = conv3d(256, 512)
-        self.out = nn.Sequential(
-            nn.Linear(512 * self.out_dim * self.out_dim * self.out_dim, 1),
-            nn.Sigmoid(),
-        )
+        self.out = nn.Linear(512 * self.out_dim * self.out_dim * self.out_dim, 1)
 
     def forward(self, x:torch.Tensor)->torch.Tensor:
         """
         Args:
-            x (torch.Tensor): 3d image
+            x (torch.Tensor): voxel occupancy (batch, 1, 64, 64, 64)
 
         Returns:
-            torch.Tensor: real/fake value of image
+            torch.Tensor: real/fake logit (batch, 1)
         """
         x = self.conv1(x)
         x = self.conv2(x)
         x = self.conv3(x)
         x = self.conv4(x)
-        # Flatten and apply linear + sigmoid
-        x = x.view(-1, self.out_channels * self.out_dim * self.out_dim * self.out_dim)
-        x = self.out(x)
-        return x
+        return self.out(x.flatten(1))
